@@ -1,0 +1,109 @@
+#!/usr/bin/python
+
+###############################################################################
+#
+# File: photo_db
+#
+# Date: 4/1/2015
+#
+# Author: Adam Kelson
+#
+###############################################################################
+
+from photo_db import *
+import os
+from optparse import OptionParser
+
+###############################################################################
+# Function: main
+###############################################################################
+def main():
+    parser = OptionParser()
+    parser.add_option("-l","--list", action="store_true", 
+        dest="list", help="List collections")
+    parser.add_option("-a","--add", action="store_true", 
+        dest="add", help="Add collection to database")
+    parser.add_option("-u","--update", action="store_true", 
+        dest="update", help="Update collection in database")
+    parser.add_option("-v","--verify", action="store_true", 
+        dest="verify", help="Verify collection")
+    parser.add_option("-d","--duplicates", action="store_true", 
+        dest="duplicates", help="Report duplicates")
+    (options, args) = parser.parse_args()
+
+    db_file = os.environ.get('PHOTO_DB')
+
+    if None == db_file:
+        print "Failed to get env PHOTO_DB"
+        exit()
+    else:
+        db = PhotoDb(db_file)
+
+    if options.list:
+        if len( args ) != 0:
+            parser.error("Incorrect number of arguments.") 
+
+        db.c.execute(
+            """SELECT name, desc, date_created, date_modified
+               FROM collections""" )
+
+        for ( name, desc, date_created, date_modified ) \
+                in db.c.fetchall():
+            print name, " - ", desc
+
+
+    if options.add or options.verify or options.update:
+        if len( args ) != 2:
+            parser.error("Incorrect number of arguments.") 
+
+        coll_name = args[0]
+        coll_path = args[1]
+
+        if not os.path.exists(coll_path):
+            parser.error(coll_path + " is not a valid path.")
+
+        if options.add:
+            db.AddCollection(coll_name, "", coll_path)
+
+        if options.update:
+            db.UpadateCollection(coll_name, coll_path)
+        
+        if options.verify:
+            print "Verifying collection", coll_name
+            (missing_list, modified_list, verified_list) = db.VerifyQuick(
+                coll_name, coll_path)
+
+            if len(missing_list) + len(modified_list) > 0:
+                print "Bummer."
+                print "Generating failure report."
+
+                output_dir="verify_rpt/"
+                html = "<html><head></head><body>"
+                html += "<h1>Missing</h1><hr>"
+
+                for (photo_id, photo_name, path) in missing_list:
+                    # Write thumbnail
+                    rel_path = os.path.join(path, photo_name)
+                    thumb_path = os.path.join(output_dir,rel_path)
+                    if not os.path.exists(os.path.dirname(thumb_path)):
+                        os.makedirs(os.path.dirname(thumb_path))
+                    with open(thumb_path, 'wb') as f:
+                        f.write(db.GetThumbByPhotoId(photo_id))
+
+                    html += "<img src='%s'>%s</img><br>" % (rel_path,rel_path)
+
+                html += "</body></html>"
+                html_path = os.path.join(output_dir,"report.html")
+                with open(html_path, 'w') as f:
+                    f.write(html)
+            else:
+                print "Pass."
+
+        print
+        print "Done."
+
+
+if __name__ == "__main__":
+    main()
+
+

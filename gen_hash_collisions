@@ -1,0 +1,96 @@
+#!/usr/bin/python
+
+###############################################################################
+#
+# File: gen_hash_collisions
+#
+# Date: 4/5/2015
+#
+# Author: Adam Kelson
+#
+###############################################################################
+
+from photo_db import *
+import os
+from optparse import OptionParser
+
+html_template = """
+<html>
+<head>
+    <title>Hash Collisions</title>
+</head>
+<body>
+    <!-- REPLACE -->
+</body>
+"""
+
+output_dir="collision_rpt/"
+
+###############################################################################
+# Function: main
+###############################################################################
+def main():
+    parser = OptionParser()
+    (options, args) = parser.parse_args()
+
+    db_file = os.environ.get('PHOTO_DB')
+
+    if None == db_file:
+        print "Failed to get env PHOTO_DB"
+        exit()
+    else:
+        db = PhotoDb(db_file)
+
+    db.c.execute(
+        """SELECT hash FROM photos GROUP BY hash HAVING count(*) > 1""")
+    collisions = db.c.fetchall()
+
+    html = ""
+
+    page_items = 0
+    pagenum = 1
+    for (hash,) in collisions:
+        print "hash:", hash
+        db.c.execute(
+            """SELECT files.path, files.name, photos.micro_thumb
+               FROM files JOIN photos
+                   ON files.photo_id=photos.uid
+               WHERE photos.hash=?""",
+            (hash,))
+
+        html += "<hr><p>%s</p>" % (hash)
+
+        collision_list = db.c.fetchall()
+
+        collision_num = 0
+        for (path,photo_name,thumb_blob) in collision_list:
+            collision_num += 1
+            thum_file_name = "%s_%i.jpg" % (hash,collision_num)
+            thumb_output_path = os.path.join(
+                output_dir,"thumbs",thum_file_name)
+            with open(thumb_output_path, 'wb') as f:
+                f.write(thumb_blob)
+            html += "<img src='%s'>" % (os.path.relpath(
+                thumb_output_path, output_dir))
+
+        page_items += 1
+        if page_items >= 50:
+            WriteHtmlPage(html,pagenum)
+            html = ""
+            page_items = 0
+            pagenum += 1
+
+    WriteHtmlPage(html,pagenum)
+    print "Done."
+
+def WriteHtmlPage(html,pagenum):
+    html_path = os.path.join(output_dir,"%i.html" % (pagenum))
+    with open(html_path, 'w') as f:
+        f.write(html_template.replace("<!-- REPLACE -->", html))
+
+
+
+if __name__ == "__main__":
+    main()
+
+
